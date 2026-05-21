@@ -697,6 +697,60 @@ class _TestTCPForwarding(_CheckForwarding):
                 writer.close()
                 await maybe_wait_closed(writer)
 
+    @asynctest
+    async def test_forward_local_port_tracker_fires_on_open_and_close(self):
+        """ForwardTracker.connection_made and connection_lost both fire"""
+
+        events: list[tuple[str, str, int, object]] = []
+
+        class _RecordingTracker:
+            def connection_made(self, orig_host: str,
+                                orig_port: int) -> None:
+                events.append(('made', orig_host, orig_port, None))
+
+            def connection_lost(self, orig_host: str, orig_port: int,
+                                exc: object) -> None:
+                events.append(('lost', orig_host, orig_port, exc))
+
+        async with self.connect() as conn:
+            async with conn.forward_local_port(
+                    '', 0, '', 7,
+                    tracker=_RecordingTracker()) as listener:
+                listen_port = listener.get_port()
+                reader, writer = await asyncio.open_connection(
+                    '127.0.0.1', listen_port)
+                writer.close()
+                await maybe_wait_closed(writer)
+                # Give asyncssh a moment to fire connection_lost.
+                await asyncio.sleep(0.1)
+
+        kinds = [event[0] for event in events]
+        self.assertIn('made', kinds)
+        self.assertIn('lost', kinds)
+
+    @asynctest
+    async def test_forward_local_port_tracker_exception_is_swallowed(self):
+        """A buggy tracker does not break forwarding"""
+
+        class _BuggyTracker:
+            def connection_made(self, orig_host: str,
+                                orig_port: int) -> None:
+                raise RuntimeError('made boom')
+
+            def connection_lost(self, orig_host: str, orig_port: int,
+                                exc: object) -> None:
+                raise RuntimeError('lost boom')
+
+        async with self.connect() as conn:
+            async with conn.forward_local_port(
+                    '', 0, '', 7,
+                    tracker=_BuggyTracker()) as listener:
+                # If asyncssh did not swallow tracker exceptions, the
+                # forward would die here and _check_local_connection
+                # would raise.
+                await self._check_local_connection(listener.get_port(),
+                                                   delay=0.1)
+
     @unittest.skipIf(sys.platform == 'win32',
                      'skip UNIX domain socket tests on Windows')
     @asynctest

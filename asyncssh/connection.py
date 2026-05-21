@@ -85,7 +85,7 @@ from .encryption import get_default_encryption_algs
 from .encryption import encryption_needs_mac
 from .encryption import get_encryption_params, get_encryption
 
-from .forward import SSHForwarder
+from .forward import ForwardTracker, SSHForwarder
 
 from .gss import GSSBase, GSSClient, GSSServer, GSSError
 
@@ -3210,7 +3210,8 @@ class SSHConnection(SSHPacketHandler, asyncio.Protocol):
     async def forward_local_port(
             self, listen_host: str, listen_port: int,
             dest_host: str, dest_port: int,
-            accept_handler: Optional[SSHAcceptHandler] = None) -> SSHListener:
+            accept_handler: Optional[SSHAcceptHandler] = None,
+            tracker: Optional['ForwardTracker'] = None) -> SSHListener:
         """Set up local port forwarding
 
            This method is a coroutine which attempts to set up port
@@ -3233,11 +3234,17 @@ class SSHConnection(SSHPacketHandler, asyncio.Protocol):
                or not to allow connection forwarding, returning `True` to
                accept the connection and begin forwarding or `False` to
                reject and close it.
+           :param tracker:
+               Optional hooks for observing per-connection lifecycle
+               events on the local listener (open/close). See
+               :class:`ForwardTracker`. ``None`` (default) preserves
+               existing behavior with no overhead.
            :type listen_host: `str`
            :type listen_port: `int`
            :type dest_host: `str`
            :type dest_port: `int`
            :type accept_handler: `callable` or coroutine
+           :type tracker: :class:`ForwardTracker` or `None`
 
            :returns: :class:`SSHListener`
 
@@ -3281,7 +3288,8 @@ class SSHConnection(SSHPacketHandler, asyncio.Protocol):
             listener = await create_tcp_forward_listener(self, self._loop,
                                                          tunnel_connection,
                                                          listen_host,
-                                                         listen_port)
+                                                         listen_port,
+                                                         tracker=tracker)
         except OSError as exc:
             self.logger.debug1('Failed to create local TCP listener: %s', exc)
             raise

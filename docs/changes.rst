@@ -3,6 +3,23 @@
 Change Log
 ==========
 
+Unreleased (fork: AlexMKX/asyncssh feat/forward-tracker)
+--------------------------------------------------------
+
+* Added optional ``tracker`` keyword argument to
+  :meth:`SSHClientConnection.forward_local_port`, accepting an object
+  implementing the new :class:`ForwardTracker` :class:`typing.Protocol`.
+  The tracker's ``connection_made(orig_host, orig_port)`` hook fires on
+  every client connect to the local listener, and
+  ``connection_lost(orig_host, orig_port, exc)`` on every disconnect.
+  Hook exceptions are caught and swallowed so a buggy tracker cannot
+  break the forwarder. ``tracker=None`` (default) preserves existing
+  behavior with no overhead.
+
+  Use case: observe per-connection lifecycle on local forwards for
+  idle-based daemon auto-shutdown, byte counters, or other passive
+  metrics.
+
 Release 2.23.0 (8 Feb 2026)
 ---------------------------
 

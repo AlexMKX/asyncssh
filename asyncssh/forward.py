@@ -24,7 +24,7 @@ import asyncio
 import socket
 from types import TracebackType
 from typing import TYPE_CHECKING, Any, Awaitable, Callable, Dict, Optional
-from typing import Type, cast
+from typing import Protocol, Type, cast, runtime_checkable
 from typing_extensions import Self
 
 from .misc import ChannelOpenError, SockAddr
@@ -36,6 +36,27 @@ if TYPE_CHECKING:
 
 
 SSHForwarderCoro = Callable[..., Awaitable]
+
+
+@runtime_checkable
+class ForwardTracker(Protocol):
+    """Optional hooks for observing local-forward connection lifecycle.
+
+    Each method is called from within the asyncio loop. Implementations
+    MUST NOT block (no I/O, no sleep). All hooks are best-effort -
+    asyncssh swallows any exception they raise (logged at debug level).
+
+    Pass an instance to :meth:`SSHClientConnection.forward_local_port`
+    to observe per-connection events on the local listener.
+    """
+
+    def connection_made(self, orig_host: str, orig_port: int) -> None:
+        """A new client TCP connection was accepted on the local listener."""
+
+    def connection_lost(self, orig_host: str, orig_port: int,
+                        exc: Optional[Exception]) -> None:
+        """A previously-accepted connection has closed (clean exc=None
+           or with an error)."""
 
 
 class SSHForwarder(asyncio.BaseProtocol):
@@ -229,6 +250,13 @@ class SSHLocalForwarder(SSHForwarder):
 class SSHLocalPortForwarder(SSHLocalForwarder):
     """Local TCP port forwarding connection handler"""
 
+    def __init__(self, conn: 'SSHConnection', coro: SSHForwarderCoro,
+                 tracker: Optional[ForwardTracker] = None):
+        super().__init__(conn, coro)
+        self._tracker = tracker
+        self._orig_host: str = ''
+        self._orig_port: int = 0
+
     def connection_made(self, transport: asyncio.BaseTransport) -> None:
         """Handle a newly opened connection"""
 
@@ -237,9 +265,31 @@ class SSHLocalPortForwarder(SSHLocalForwarder):
         peername = cast(SockAddr, transport.get_extra_info('peername'))
 
         if peername: # pragma: no branch
-            orig_host, orig_port = peername[:2]
+            self._orig_host, self._orig_port = peername[:2]
 
-        self.forward(orig_host, orig_port)
+        if self._tracker is not None:
+            try:
+                self._tracker.connection_made(self._orig_host,
+                                              self._orig_port)
+            except Exception: # pylint: disable=broad-exception-caught
+                # Tracker is an observer; a buggy one must not break
+                # the forwarder. Swallow silently (asyncssh has no
+                # logger on the protocol class itself).
+                pass
+
+        self.forward(self._orig_host, self._orig_port)
+
+    def connection_lost(self, exc: Optional[Exception]) -> None:
+        """Handle a closed connection"""
+
+        if self._tracker is not None:
+            try:
+                self._tracker.connection_lost(self._orig_host,
+                                              self._orig_port, exc)
+            except Exception: # pylint: disable=broad-exception-caught
+                pass
+
+        super().connection_lost(exc)
 
 
 class SSHLocalPathForwarder(SSHLocalForwarder):

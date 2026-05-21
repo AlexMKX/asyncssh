@@ -28,7 +28,7 @@ from typing import TYPE_CHECKING, AnyStr, Callable, Generic, List, Optional
 from typing import Sequence, Set, Tuple, Type, Union
 from typing_extensions import Self
 
-from .forward import SSHForwarderCoro
+from .forward import ForwardTracker, SSHForwarderCoro
 from .forward import SSHLocalPortForwarder, SSHLocalPathForwarder
 from .misc import HostPort, MaybeAwait
 from .session import SSHTCPSession, SSHUNIXSession
@@ -345,14 +345,15 @@ async def create_tcp_local_listener(
 async def create_tcp_forward_listener(conn: 'SSHConnection',
                                       loop: asyncio.AbstractEventLoop,
                                       coro: SSHForwarderCoro, listen_host: str,
-                                      listen_port: int) -> \
-        'SSHForwardListener':
+                                      listen_port: int,
+                                      tracker: Optional[ForwardTracker] = None
+                                      ) -> 'SSHForwardListener':
     """Create a listener to forward traffic from a local TCP port over SSH"""
 
     def protocol_factory() -> asyncio.BaseProtocol:
         """Start a port forwarder for each new local connection"""
 
-        return SSHLocalPortForwarder(conn, coro)
+        return SSHLocalPortForwarder(conn, coro, tracker)
 
     return await create_tcp_local_listener(conn, loop, protocol_factory,
                                            listen_host, listen_port)

@@ -1008,6 +1008,13 @@ Forwarder Classes
    .. automethod:: close
    ============================== =
 
+.. autoclass:: ForwardTracker
+
+   ============================== =
+   .. automethod:: connection_made
+   .. automethod:: connection_lost
+   ============================== =
+
 
 Listener Classes
 ================
