@@ -1,2 +1,2 @@
-cryptography==2.8
+cryptography==46.0.7
 sphinx==4.2.0
